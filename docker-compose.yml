@@ -1,53 +1,55 @@
 services:
+
+  # 服务名
   magpie:
+    # 模拟一个伪终端
+    tty: true
+    # 打开标准输入, 可以接受外部输入
+    stdin_open: true
+    # 指定容器名称
+    container_name: magpie
+    # 指定为镜像名称或镜像ID
     image: iflyelf/magpie:latest
     # 国内推荐改用华为云 SWR:
     # image: swr.cn-east-3.myhuaweicloud.com/iflyelf/magpie:latest
-    container_name: magpie
-    restart: unless-stopped
-
-    # 以 root 运行 (镜像默认即 root, 这里显式声明)
-    user: "0:0"
-
-    # ===== 需求中要求的三项特权配置 =====
-    # 宿主机共享进程命名空间: 容器内可直接看到并管理宿主机进程
-    pid: host
+    # 覆盖容器启动后默认执行的命令
+    command: [web, --addr, 0.0.0.0:3430, --no-open]
+    # 宿主机共享进程命名空间
+    # pid: host
     # 使用系统的 IPC 命名空间
-    ipc: host
+    # ipc: host
     # 允许容器中运行一些特权命令
     privileged: true
-
-    ports:
-      - "3425:3425"   # 网关: agent / OpenAI / Anthropic / Gemini 客户端调用
-      - "3430:3430"   # 浏览器 UI (magpie web)
-
+    # 指定容器退出后的重启策略为始终重启
+    restart: always
+    # 指定容器的内核能力(capacity)分配
+    cap_add:
+      - ALL
+    # dns配置
+    dns:
+      - 10.0.9.60
+      - 10.0.9.61
+    # 数据卷所挂载路径设置
+    volumes:
+      # 配置文件
+      - ./config:/config
+      # 同步宿主机时区与时间
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro,cached
+      - /etc/localtime:/etc/localtime:ro,cached
+      # 共享内核
+      - /sys/fs/bpf:/sys/fs/bpf:rw,cached
+      - /lib/modules:/lib/modules:ro,cached
+      - /etc/sysctl.conf:/etc/sysctl.conf:ro,cached
+    # 环境变量
     environment:
       TZ: Asia/Shanghai
       MAGPIE_ADDR: 0.0.0.0:3425
-      # 浏览器 UI 的固定密钥 (16 位以上), 生成: openssl rand -hex 16
-      MAGPIE_WEB_KEY: "change-me-please-0123456789"
-      # 其他机器通过宿主机地址访问时填写 (影响日志中展示的地址)
-      # MAGPIE_PUBLIC_URL: http://192.168.1.20:3425
-      # 仅允许这些来源地址访问网关与 UI (IP / CIDR, 逗号分隔)
-      # MAGPIE_ALLOW_IPS: 192.168.1.0/24,10.0.0.0/8
-
-    volumes:
-      # 所有状态: providers、密钥、订阅登录态、插件、用量
-      - ./config:/config
-      # ===== 可选: 接管宿主机上已有 agent 的配置 =====
-      # 挂载后容器内的 magpie 直接改写宿主机的 agent 配置
-      # - /root/.claude:/config/home/.claude
-      # - /root/.codex:/config/home/.codex
-      # - /root/.config/opencode:/config/home/.config/opencode
-      # 需要读取宿主机 /proc (配合 pid: host) 时可只读挂载:
-      # - /proc:/host/proc:ro
-
-    # 浏览器 UI + 网关; 只需网关时改成: ["serve"]
-    command: ["web", "--addr", "0.0.0.0:3430", "--no-open"]
-
-    healthcheck:
-      test: ["CMD", "/magpie", "healthcheck"]
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
+      MAGPIE_WEB_KEY: 455ab8ef6d96f84d51203f070f32a273
+    # 配置容器连接的网络
+    network_mode: "host"
+    # 指定容器的 ulimits 限制值
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
