@@ -186,11 +186,27 @@ jobs:
         run: |
           set -euo pipefail
           docker pull "${IMAGE}"
-          docker run -d --name magpie-smoke -v magpie-smoke:/config -p 13425:3425 "${IMAGE}"
+          docker volume rm -f magpie-smoke >/dev/null 2>&1 || true
 
+          # 先验证卷可写, 并创建冒烟测试用的 provider 与网关密钥
+          OUT=$(docker run --rm -v magpie-smoke:/config "${IMAGE}" \
+                  provider add ci-smoke key=sk-ci url=https://example.com)
+          echo "$OUT"
+          echo "$OUT" | grep -q 'added ci-smoke'
+
+          KEY=$(docker run --rm -v magpie-smoke:/config "${IMAGE}" \
+                  gateway-key add ci-smoke --key sk-ci-gateway-key | tr -d '\r\n')
+          echo "gateway key created: ${KEY:0:12}…"
+
+          docker run -d --name magpie-smoke -v magpie-smoke:/config \
+            -p 13425:3425 "${IMAGE}"
+
+          # 新版 magpie 对容器外的请求强制要求网关密钥, 用密钥探测才算真正就绪
           READY=0
           for _ in $(seq 1 40); do
-            if curl -fsS -o /dev/null http://127.0.0.1:13425/v1/models; then READY=1; break; fi
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${KEY}" http://127.0.0.1:13425/v1/models || true)
+            if [ "$CODE" = 200 ]; then READY=1; break; fi
             sleep 1
           done
           if [ "$READY" != 1 ]; then
@@ -204,7 +220,7 @@ jobs:
           docker exec magpie-smoke /bin/sh -c 'echo sh works'
 
           CODE=$(curl -s -o /tmp/body.json -w '%{http_code}' \
-            -H 'Authorization: Bearer magpie' -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${KEY}" -H 'Content-Type: application/json' \
             -d '{"model":"ci-unknown-model","messages":[{"role":"user","content":"hi"}]}' \
             http://127.0.0.1:13425/v1/chat/completions)
           echo "chat/completions answered HTTP $CODE"
@@ -212,15 +228,11 @@ jobs:
           (( CODE >= 400 && CODE < 500 ))
           jq -e '.error.type' /tmp/body.json > /dev/null
 
-          # 卷可写
-          OUT=$(docker run --rm -v magpie-smoke:/config "${IMAGE}" \
-                  provider add ci-smoke key=sk-ci url=https://example.com)
-          echo "$OUT"
-          echo "$OUT" | grep -q 'added ci-smoke'
-
       - name: 清理冒烟测试容器
         if: always()
-        run: docker rm -f magpie-smoke 2>/dev/null || true
+        run: |
+          docker rm -f magpie-smoke 2>/dev/null || true
+          docker volume rm -f magpie-smoke 2>/dev/null || true
 
       # 华为云 SWR 镜像仓库默认私有，push 后调用 SWR API 设为公开
       # 需 Secrets: SWR_AK / SWR_SK（华为云账号 AK/SK，具备 swr:repo:updateRepo 权限）
