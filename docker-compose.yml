@@ -25,10 +25,6 @@ services:
     # 指定容器的内核能力(capacity)分配
     cap_add:
       - ALL
-    # dns配置
-    dns:
-      - 10.0.9.60
-      - 10.0.9.61
     # 数据卷所挂载路径设置
     volumes:
       # 配置文件
