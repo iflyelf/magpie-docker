@@ -1,0 +1,6 @@
+# 运行期数据 (providers / 登录态 / 插件 / 用量) 全部落在 /config
+config/
+# 本地构建产物
+dist/
+*.log
+old/
