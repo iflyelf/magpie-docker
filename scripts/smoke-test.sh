@@ -40,6 +40,11 @@ echo "==> 校验 CLI 与配置目录"
 docker exec "$NAME" /bin/bash -c 'magpie healthcheck && ls -la /config'
 docker exec "$NAME" /bin/sh -c 'echo sh works'
 
+echo "==> 校验 MCP 运行时 (nvm / npx / uvx)"
+docker exec "$NAME" bash -lc \
+  'nvm --version && node -v && npm -v && npx --version && uv --version && uvx --version'
+docker exec "$NAME" npm config get registry | grep -q 'registry.npmmirror.com'
+
 echo "==> 校验 /v1/chat/completions 返回 JSON 错误"
 CODE=$(curl -s -o /tmp/magpie-smoke-body.json -w '%{http_code}' \
   -H "Authorization: Bearer ${KEY}" -H 'Content-Type: application/json' \

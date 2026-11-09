@@ -30,6 +30,9 @@
 
 - 运行阶段补齐 magpie 运行所需依赖（bash / curl / ca-certificates / git / 解压工具 /
   libstdc++ / libgcc / procps / tini / util-linux），订阅登录与厂商 CLI 安装脚本可直接运行
+- 内置 MCP 运行时 **Node.js（`npm` / `npx`）** 与 **uv（`uv` / `uvx`）**，magpie 的
+  MCP Library 可直接拉起 `npx` / `uvx` 类型的 stdio MCP server；Node 通过 **nvm** 安装最新 LTS，
+  构建时优先国内镜像并自动回退官方源
 - 所有状态持久化到 `/config`，重启、换新镜像不丢 providers、密钥、订阅登录态与插件
 - 内置 `HEALTHCHECK`（`magpie healthcheck`），`docker ps` 可直接看到健康状态
 - 版本自动跟随上游最新 Tag（每天定时检查），也可手动指定版本触发构建
@@ -110,6 +113,62 @@ export GOOGLE_GEMINI_BASE_URL=http://<宿主机IP>:3425
 export GEMINI_API_KEY=sk-magpie-key-...
 ```
 
+## MCP 运行时（npx / uvx）
+
+magpie 的 MCP Library 支持通过 `npx` / `uvx` 启动 stdio 类型 MCP server，镜像已内置：
+
+| 命令 | 来源 | 说明 |
+| --- | --- | --- |
+| `nvm` | nvm 官方安装脚本 | 默认跟随最新版 nvm |
+| `node` / `npm` / `npx` | nvm 安装的最新 Node LTS | 运行 npm 生态 MCP server |
+| `uv` / `uvx` | uv 官方预编译包 | 运行 PyPI 生态 MCP server，Python 由 uv 自动下载到 `/config/data` |
+
+Node.js 通过 nvm 安装到 `/usr/local/nvm`，并建立 `/usr/local/nvm/current` 指向当前 LTS，
+因此非交互进程（magpie 拉起 MCP server）也能直接找到 `node` / `npx`：
+
+```bash
+# 校验运行时（无需联网）
+docker exec magpie bash -lc 'nvm --version; node -v; npm -v; npx --version; uv --version; uvx --version'
+
+# 查看 / 切换 Node 版本（交互式 shell 已自动加载 nvm）
+docker exec -it magpie bash
+nvm ls
+nvm install 22 && nvm alias default 22
+
+# 实测拉起一个 MCP server
+docker exec magpie npx -y @modelcontextprotocol/server-everything --help
+docker exec magpie uvx mcp-server-fetch --help
+```
+
+npm 镜像源已在构建时写入全局配置（`npm config get registry` 可查看），并同步通过
+`NPM_CONFIG_REGISTRY` 生效：
+
+```bash
+docker exec magpie npm config get registry   # https://registry.npmmirror.com
+```
+
+依赖下载已做国内网络优化，**无需额外配置**：
+
+- 构建期：nvm 安装脚本 / 仓库走 `gh-proxy.xiaonuo.live`，Node LTS 走 `npmmirror`，
+  uv 走 `ghproxy`，任一源失败自动回退官方源
+- 运行期：`npx` 默认使用 `registry.npmmirror.com`，`uvx` 默认使用清华 PyPI 镜像，
+  uv 自动下载 Python 时默认走 `ghproxy`
+
+海外网络或企业内网可在 `docker-compose.yml` 的 `environment` 中覆盖：
+
+```yaml
+environment:
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+  NVM_NODEJS_ORG_MIRROR: https://nodejs.org/dist
+  UV_DEFAULT_INDEX: https://pypi.org/simple
+  # 取消镜像加速时直接置空即可
+  UV_PYTHON_INSTALL_MIRROR: ""
+  UV_PYPY_INSTALL_MIRROR: ""
+```
+
+npm / npx 与 uv 的缓存都写入 `/config`，重启或换镜像后仍然复用。
+
+
 ## 端口
 
 | 端口 | 用途 |
@@ -128,6 +187,9 @@ export GEMINI_API_KEY=sk-magpie-key-...
 
 挂载宿主机目录时容器以 root 写入，无需再 `chown 65532`。
 
+Node.js（nvm）与 uv 的可执行文件安装在镜像的 `/usr/local` 下，不占用 `/config`；
+npm / npx 缓存位于 `/config/home/.npm`，uv 缓存与自动下载的 Python 位于 `/config/cache`、`/config/data`。
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -138,6 +200,12 @@ export GEMINI_API_KEY=sk-magpie-key-...
 | `MAGPIE_PUBLIC_URL` | 空 | 其他机器访问网关使用的地址，如 `http://192.168.1.20:3425` |
 | `MAGPIE_ALLOW_IPS` | 空 | 仅允许这些 IP / CIDR 访问网关与 UI，逗号分隔 |
 | `MAGPIE_TLS_CERT` / `MAGPIE_TLS_KEY` | 空 | 网关与 UI 的 TLS 证书 / 私钥路径（挂载进容器） |
+| `NPM_CONFIG_REGISTRY` | `https://registry.npmmirror.com` | `npx` / `npm` 默认源，海外可覆盖为官方源 |
+| `NVM_DIR` | `/usr/local/nvm` | nvm 与 Node.js 安装目录（镜像内） |
+| `NVM_NODEJS_ORG_MIRROR` | `https://npmmirror.com/mirrors/node` | `nvm install` 下载 Node.js 的镜像 |
+| `UV_DEFAULT_INDEX` | `https://pypi.tuna.tsinghua.edu.cn/simple` | `uvx` 默认 PyPI 源，海外可覆盖为官方源 |
+| `UV_PYTHON_INSTALL_MIRROR` | `ghproxy` 加速 | uv 自动下载 Python 时的镜像，置空使用官方源 |
+| `UV_PYPY_INSTALL_MIRROR` | `ghproxy` 加速 | uv 自动下载 PyPy 时的镜像，置空使用官方源 |
 | `HOME` / `XDG_*` | `/config/...` | 镜像已设置，将全部状态收敛到 `/config`，不建议修改 |
 
 ## 特权模式说明
@@ -200,6 +268,12 @@ docker build \
 | `MAGPIE_REF` | `main` | 上游 branch / tag / commit |
 | `VERSION` | `dev` | 写入二进制的版本号（`-X main.version`） |
 | `GOPROXY` | `https://goproxy.cn,direct` | Go 模块代理 |
+| `NVM_INSTALL_URL` | `gh-proxy` 加速的 nvm `install.sh` | nvm 安装脚本地址，失败回退官方 raw |
+| `NVM_GIT_URL` | `gh-proxy` 加速的 nvm 仓库 | nvm 源码地址，失败回退 `github.com/nvm-sh/nvm.git` |
+| `NODE_MIRROR` | `https://npmmirror.com/mirrors/node` | `nvm install` 下载 Node 的镜像 |
+| `NPM_REGISTRY` | `https://registry.npmmirror.com` | 写入 npm 全局配置并作为 `NPM_CONFIG_REGISTRY` |
+| `UV_VERSION` | `0.13.7` | 内置 uv 版本（含 `uvx`） |
+| `UV_MIRROR` | `https://ghproxy.net/https://github.com/astral-sh/uv/releases/download` | uv 下载镜像，失败自动回退 `github.com` |
 
 ## 自动构建（GitHub Actions）
 
@@ -240,6 +314,7 @@ curl -X POST \
 | 构建基础 | `golang:1.26-alpine` | `iflyelf/ubuntu:latest` |
 | 运行基础 | `debian:12-slim` | `iflyelf/ubuntu:lite` |
 | 用户 | nonroot（uid 65532） | **root**（可用 `user:` 覆盖） |
+| MCP 运行时 | 未内置 | 内置 Node.js（`npx`）+ uv（`uvx`），国内镜像加速 |
 | 特权模式 | 未适配 | 适配 `pid: host` / `ipc: host` / `privileged: true` |
 | 状态目录 | `/config` | `/config`（兼容） |
 | 推送仓库 | GHCR | Docker Hub + 华为云 SWR |

@@ -120,6 +120,86 @@ RUN set -eux; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+#=================================================
+# MCP 运行时: Node.js (nvm + npm / npx) + uv (uv / uvx)
+#=================================================
+# magpie 的 MCP Library 会用 `npx` / `uvx` 拉起 stdio 类型的 MCP server,
+# iflyelf/ubuntu:lite 不自带这两个运行时, 这里按目标架构安装:
+#   - Node.js: 通过 nvm 安装最新 LTS (nvm 也安装最新版)
+#   - uv: uv 官方预编译包 (自带 uvx)
+# 所有下载优先国内镜像, 失败自动回退官方源; 版本/镜像均可通过 --build-arg 覆盖。
+ARG NVM_INSTALL_URL=https://gh-proxy.xiaonuo.live/https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh
+ARG NVM_GIT_URL=https://gh-proxy.xiaonuo.live/https://github.com/nvm-sh/nvm.git
+ARG NODE_MIRROR=https://npmmirror.com/mirrors/node
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG UV_VERSION=0.13.7
+ARG UV_MIRROR=https://ghproxy.net/https://github.com/astral-sh/uv/releases/download
+
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) uv_arch=x86_64  ;; \
+        arm64) uv_arch=aarch64 ;; \
+        *) echo "ERROR: 不支持的架构: $arch" >&2; exit 1 ;; \
+    esac; \
+    fetch() { \
+        dest="$1"; shift; \
+        for url in "$@"; do \
+            echo "==> 下载: $url"; \
+            if curl -fSL --connect-timeout 15 --retry 2 --retry-delay 3 -o "$dest" "$url"; then \
+                return 0; \
+            fi; \
+            echo "WARN: 下载失败, 尝试下一个源" >&2; \
+        done; \
+        echo "ERROR: 所有下载源均失败" >&2; \
+        return 1; \
+    }; \
+    export NVM_DIR=/usr/local/nvm; \
+    export PROFILE=/dev/null; \
+    export METHOD=git; \
+    export NVM_NODEJS_ORG_MIRROR="${NODE_MIRROR}"; \
+    mkdir -p "$NVM_DIR"; \
+    fetch /tmp/nvm-install.sh \
+        "${NVM_INSTALL_URL}" \
+        "https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh"; \
+    if ! NVM_SOURCE="${NVM_GIT_URL}" bash /tmp/nvm-install.sh; then \
+        echo "WARN: 通过镜像安装 nvm 失败, 回退官方源" >&2; \
+        NVM_SOURCE="https://github.com/nvm-sh/nvm.git" bash /tmp/nvm-install.sh; \
+    fi; \
+    rm -f /tmp/nvm-install.sh; \
+    [ -s "${NVM_DIR}/nvm.sh" ] || { echo "ERROR: nvm 安装失败" >&2; exit 1; }; \
+    bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "lts/*" && nvm use default'; \
+    NODE_VER="$(bash -c '. "$NVM_DIR/nvm.sh" --no-use; nvm version default')"; \
+    NODE_BIN="${NVM_DIR}/versions/node/${NODE_VER}/bin"; \
+    ln -sfn "$(dirname "$NODE_BIN")" "${NVM_DIR}/current"; \
+    "${NODE_BIN}/npm" config set registry "${NPM_REGISTRY}" --location=global; \
+    printf '%s\n' \
+        'export NVM_DIR="/usr/local/nvm"' \
+        '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' \
+        > /etc/profile.d/nvm.sh; \
+    chmod 0644 /etc/profile.d/nvm.sh; \
+    if [ -f /etc/bash.bashrc ] && ! grep -q 'nvm.sh' /etc/bash.bashrc; then \
+        printf '%s\n' \
+            'export NVM_DIR="/usr/local/nvm"' \
+            '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' \
+            >> /etc/bash.bashrc; \
+    fi; \
+    fetch /tmp/uv.tar.gz \
+        "${UV_MIRROR}/${UV_VERSION}/uv-${uv_arch}-unknown-linux-gnu.tar.gz" \
+        "https://gh-proxy.com/https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${uv_arch}-unknown-linux-gnu.tar.gz" \
+        "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${uv_arch}-unknown-linux-gnu.tar.gz"; \
+    tmp="$(mktemp -d)"; \
+    tar -xzf /tmp/uv.tar.gz -C "$tmp"; \
+    set -- "$tmp"/uv-*; \
+    install -m 0755 "$1/uv" "$1/uvx" /usr/local/bin/; \
+    rm -rf "$tmp" /tmp/uv.tar.gz; \
+    "${NODE_BIN}/node" --version; \
+    "${NODE_BIN}/npm" --version; \
+    "${NODE_BIN}/npx" --version; \
+    "${NODE_BIN}/npm" config get registry; \
+    uv --version; \
+    uvx --version
+
 # 拷贝编译产物与预创建的配置目录
 COPY --from=builder /out/magpie /magpie
 COPY --from=builder /out/config /config
@@ -131,14 +211,24 @@ RUN set -eux; \
 # 环境变量:
 #   HOME / XDG_*  所有状态写入 /config, 重启或换新镜像不丢失
 #   MAGPIE_ADDR   网关监听地址, 容器内必须 0.0.0.0 才能被宿主机访问
-#   PATH          厂商 CLI 默认安装目录 (root 的 HOME 在 /config/home)
+#   NVM_DIR       nvm 与 Node.js 安装在镜像内 (不在 /config, 避免被数据卷覆盖)
+#   PATH          默认 Node LTS 的 bin 目录 + 厂商 CLI 默认安装目录
+#   NPM_CONFIG_REGISTRY / NVM_NODEJS_ORG_MIRROR / UV_*
+#                 运行期 npx / uvx 拉包与 nvm 安装 Node 也默认走国内镜像,
+#                 避免首次启动 MCP server 时卡在境外源; 海外使用可覆盖为官方值
 ENV HOME=/config/home \
     XDG_CONFIG_HOME=/config \
     XDG_CACHE_HOME=/config/cache \
     XDG_DATA_HOME=/config/data \
     XDG_STATE_HOME=/config/state \
     MAGPIE_ADDR=0.0.0.0:3425 \
-    PATH=/config/home/.local/bin:/config/home/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    NVM_DIR=/usr/local/nvm \
+    NPM_CONFIG_REGISTRY=${NPM_REGISTRY} \
+    NVM_NODEJS_ORG_MIRROR=${NODE_MIRROR} \
+    UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
+    UV_PYTHON_INSTALL_MIRROR=https://ghproxy.net/https://github.com/astral-sh/python-build-standalone/releases/download \
+    UV_PYPY_INSTALL_MIRROR=https://ghproxy.net/https://github.com/astral-sh/pypy/releases/download \
+    PATH=/usr/local/nvm/current/bin:/config/home/.local/bin:/config/home/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # 默认以 root 运行: 可配合 pid: host / ipc: host / privileged: true
 # 直接操作宿主机上的进程与 agent 配置
