@@ -87,6 +87,7 @@ ENV TZ=${TZ}
 #   bash / curl / ca-certificates  订阅登录与厂商 CLI 的 `curl … | bash` 一键安装
 #   git / openssh-client           插件与部分 agent 工具链
 #   libstdc++6 / libgcc-s1         插件运行时 Bun 所需的 glibc 组件
+#   libatomic1                     Node.js 运行时依赖 (libatomic.so.1)
 #   xz-utils / gzip / unzip / zip  下载包解压
 #   procps / tini                  进程查看 (配合 pid: host) 与 PID 1 信号回收
 #   util-linux                     提供 nsenter / mount 等特权环境常用命令
@@ -98,6 +99,7 @@ ARG PKG_DEPS="\
     openssh-client \
     libstdc++6 \
     libgcc-s1 \
+    libatomic1 \
     xz-utils \
     gzip \
     unzip \

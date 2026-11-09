@@ -29,7 +29,7 @@
   ```
 
 - 运行阶段补齐 magpie 运行所需依赖（bash / curl / ca-certificates / git / 解压工具 /
-  libstdc++ / libgcc / procps / tini / util-linux），订阅登录与厂商 CLI 安装脚本可直接运行
+  libstdc++ / libgcc / libatomic / procps / tini / util-linux），订阅登录与厂商 CLI 安装脚本可直接运行
 - 内置 MCP 运行时 **Node.js（`npm` / `npx`）** 与 **uv（`uv` / `uvx`）**，magpie 的
   MCP Library 可直接拉起 `npx` / `uvx` 类型的 stdio MCP server；Node 通过 **nvm** 安装最新 LTS，
   构建时优先国内镜像并自动回退官方源
