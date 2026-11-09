@@ -149,8 +149,8 @@ docker exec magpie npm config get registry   # https://registry.npmmirror.com
 
 依赖下载已做国内网络优化，**无需额外配置**：
 
-- 构建期：nvm 安装脚本 / 仓库走 `gh-proxy.xiaonuo.live`，Node LTS 走 `npmmirror`，
-  uv 走 `ghproxy`，任一源失败自动回退官方源
+- 构建期：nvm 安装脚本 / 仓库走 `gh-proxy.xiaonuo.live`，Node LTS 走清华 `nodejs-release` 镜像
+  （含 `SHASUMS256.txt` 校验；失败自动回退 `nodejs.org`），uv 走 `ghproxy`
 - 运行期：`npx` 默认使用 `registry.npmmirror.com`，`uvx` 默认使用清华 PyPI 镜像，
   uv 自动下载 Python 时默认走 `ghproxy`
 
@@ -202,7 +202,7 @@ npm / npx 缓存位于 `/config/home/.npm`，uv 缓存与自动下载的 Python 
 | `MAGPIE_TLS_CERT` / `MAGPIE_TLS_KEY` | 空 | 网关与 UI 的 TLS 证书 / 私钥路径（挂载进容器） |
 | `NPM_CONFIG_REGISTRY` | `https://registry.npmmirror.com` | `npx` / `npm` 默认源，海外可覆盖为官方源 |
 | `NVM_DIR` | `/usr/local/nvm` | nvm 与 Node.js 安装目录（镜像内） |
-| `NVM_NODEJS_ORG_MIRROR` | `https://npmmirror.com/mirrors/node` | `nvm install` 下载 Node.js 的镜像 |
+| `NVM_NODEJS_ORG_MIRROR` | `https://mirrors.tuna.tsinghua.edu.cn/nodejs-release` | `nvm install` 下载 Node.js 的镜像（含校验文件），失败回退官方源 |
 | `UV_DEFAULT_INDEX` | `https://pypi.tuna.tsinghua.edu.cn/simple` | `uvx` 默认 PyPI 源，海外可覆盖为官方源 |
 | `UV_PYTHON_INSTALL_MIRROR` | `ghproxy` 加速 | uv 自动下载 Python 时的镜像，置空使用官方源 |
 | `UV_PYPY_INSTALL_MIRROR` | `ghproxy` 加速 | uv 自动下载 PyPy 时的镜像，置空使用官方源 |
@@ -270,7 +270,7 @@ docker build \
 | `GOPROXY` | `https://goproxy.cn,direct` | Go 模块代理 |
 | `NVM_INSTALL_URL` | `gh-proxy` 加速的 nvm `install.sh` | nvm 安装脚本地址，失败回退官方 raw |
 | `NVM_GIT_URL` | `gh-proxy` 加速的 nvm 仓库 | nvm 源码地址，失败回退 `github.com/nvm-sh/nvm.git` |
-| `NODE_MIRROR` | `https://npmmirror.com/mirrors/node` | `nvm install` 下载 Node 的镜像 |
+| `NODE_MIRROR` | `https://mirrors.tuna.tsinghua.edu.cn/nodejs-release` | `nvm install` 下载 Node 的镜像（含 `SHASUMS256.txt`），失败回退官方源 |
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | 写入 npm 全局配置并作为 `NPM_CONFIG_REGISTRY` |
 | `UV_VERSION` | `0.13.7` | 内置 uv 版本（含 `uvx`） |
 | `UV_MIRROR` | `https://ghproxy.net/https://github.com/astral-sh/uv/releases/download` | uv 下载镜像，失败自动回退 `github.com` |

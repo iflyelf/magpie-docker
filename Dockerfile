@@ -130,7 +130,7 @@ RUN set -eux; \
 # 所有下载优先国内镜像, 失败自动回退官方源; 版本/镜像均可通过 --build-arg 覆盖。
 ARG NVM_INSTALL_URL=https://gh-proxy.xiaonuo.live/https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh
 ARG NVM_GIT_URL=https://gh-proxy.xiaonuo.live/https://github.com/nvm-sh/nvm.git
-ARG NODE_MIRROR=https://npmmirror.com/mirrors/node
+ARG NODE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/nodejs-release
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 ARG UV_VERSION=0.13.7
 ARG UV_MIRROR=https://ghproxy.net/https://github.com/astral-sh/uv/releases/download
@@ -168,7 +168,12 @@ RUN set -eux; \
     fi; \
     rm -f /tmp/nvm-install.sh; \
     [ -s "${NVM_DIR}/nvm.sh" ] || { echo "ERROR: nvm 安装失败" >&2; exit 1; }; \
-    bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "lts/*" && nvm use default'; \
+    if ! bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts'; then \
+        echo "WARN: 通过 ${NODE_MIRROR} 安装 Node 失败, 回退官方源" >&2; \
+        rm -rf "${NVM_DIR}/versions/node" "${NVM_DIR}/.cache"; \
+        NVM_NODEJS_ORG_MIRROR=https://nodejs.org/dist bash -c '. "$NVM_DIR/nvm.sh" && nvm install --lts'; \
+    fi; \
+    bash -c '. "$NVM_DIR/nvm.sh" && nvm alias default "lts/*" && nvm use default'; \
     NODE_VER="$(bash -c '. "$NVM_DIR/nvm.sh" --no-use; nvm version default')"; \
     NODE_BIN="${NVM_DIR}/versions/node/${NODE_VER}/bin"; \
     ln -sfn "$(dirname "$NODE_BIN")" "${NVM_DIR}/current"; \
