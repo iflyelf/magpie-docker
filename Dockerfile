@@ -177,6 +177,7 @@ RUN set -eux; \
     NODE_VER="$(bash -c '. "$NVM_DIR/nvm.sh" --no-use; nvm version default')"; \
     NODE_BIN="${NVM_DIR}/versions/node/${NODE_VER}/bin"; \
     ln -sfn "$(dirname "$NODE_BIN")" "${NVM_DIR}/current"; \
+    export PATH="${NODE_BIN}:${PATH}"; \
     "${NODE_BIN}/npm" config set registry "${NPM_REGISTRY}" --location=global; \
     printf '%s\n' \
         'export NVM_DIR="/usr/local/nvm"' \
